@@ -1,0 +1,99 @@
+/****************************************************************************/
+/* Accessibility and quality of care, 2017
+/*
+/* Children with dental care
+/*
+/* Example SAS code to replicate number and percentage of children with dental
+/*  care, by poverty status
+/*
+/* Input file: C:\MEPS\h201.ssp (2017 full-year consolidated)
+/****************************************************************************/
+
+ods graphics off;
+
+/* Load FYC file *************************************************************/
+/*Update filename and location to match the location for my computer*/
+
+FILENAME h201 "/folders/myfolders/Porfolio/h201.ssp";
+proc xcopy in = h201 out = WORK IMPORT;
+run;
+
+/* Define variables **********************************************************/
+/*  - For 1996-2007, AGELAST must be created from AGEyyX, AGE42X, AGE31X     */
+/*  - For 1996, use 'POVCAT' instead of 'POVCAT96'                           */
+/* Update file name to h201 and any 2016 variables to be 2017 variables*/
+/* AGELAST data has been set to include eligible patients older than 1 year old and less than 18 years old */
+/* DVTOT17 is the number of dental care visits. This has been set to be greater than 0 */
+/* Child Dental is created to contain data with children in the age range who have visited the dentist */
+/* Proc format is run on the MEPS data to map the child_dental data and the POVCAT data from the h201 data file. These mappings will create values to test the dental visits for children and the different poverty levels */
+
+data MEPS;
+  	SET h201;
+
+ /* Children receiving dental care */
+	child_2to17 = (1 < AGELAST & AGELAST < 18)*1;
+	child_dental = ((DVTOT17 > 0) & (child_2to17 = 1))*1;
+run;
+
+proc format;
+  value child_dental
+	  1 = "One or more dental visits"
+	  0 = "No dental visits in past year";
+
+  value POVCAT
+	  1 = "Negative or poor"
+	  2 = "Near-poor"
+	  3 = "Low income"
+	  4 = "Middle income"
+	  5 = "High income";
+run;
+
+/* Calculate estimates using survey procedures *******************************/
+/* Survey procedures are calculated with the MEPS data to prepare the number of strata, clusters, observations, and the sum of the weight by using the proc surveryfreq formula. This will help create the tables to estimate the population totals, proportions, and the standard errors. */
+
+ods output CrossTabs = out;
+proc surveyfreq data = MEPS missing;
+	FORMAT child_dental child_dental. POVCAT17 POVCAT.;
+	STRATA VARSTR;
+	CLUSTER VARPSU;
+	WEIGHT PERWT17F;
+	TABLES child_2to17*POVCAT17*child_dental / row;
+run;
+
+proc print data = out noobs label;
+	where child_2to17 = 1 and child_dental ne . and POVCAT17 ne .;
+	var child_dental POVCAT17 WgtFreq StdDev RowPercent RowStdErr;
+run;
+/* Produce summary statistics for POVCAT data and child_dental data */
+/* Summary statistics include the mean, standard deviation, minimum value, maximum value, and number of values being analyzed */
+/* Proc means data formula is used on the H201 data set and the MEPS dataset to analyze statistics for the poverty category variables and for the value child_dental that was created earlier */
+
+ods noproctitle;
+ods graphics / imagemap=on;
+
+proc means data=WORK.H201 chartype mean std min max n vardef=df;
+	var POVCAT17;
+run;
+
+ods noproctitle;
+ods graphics / imagemap=on;
+
+proc means data=WORK.MEPS chartype mean std min max n vardef=df;
+	var child_dental;
+run;
+/* Test for normality */
+/* Normality test is used to determine if the data sample was taken from a normally distributed population which is required to run a valid t test */
+
+proc univariate data=WORK.MEPS normal mu0=0;
+	ods select TestsForNormality;
+	class child_dental;
+	var POVCAT17;
+run;
+
+/* t test */
+/* Two-tailed test is ran on the poverty categorical data based on the child dental data. This test is used for null-hypothesis testing and for testing to see if there is statistical significance. */
+
+proc ttest data=WORK.MEPS sides=2 h0=0 plots(showh0);
+	class child_dental;
+	var POVCAT17;
+run;
